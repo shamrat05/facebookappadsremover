@@ -142,13 +142,17 @@ object ContextualDownloadHook {
         bridge: DexKitBridge,
         classLoader: ClassLoader,
     ): Result {
+        if (!Settings.downloadHooksEnabled()) {
+            L.i(TAG, "downloader disabled; contextual download hooks remain unarmed")
+            return Result(null, null, null)
+        }
         val story = discoverStory(module, bridge, classLoader)
         val reel = discoverReel(module, bridge, classLoader)
         return Result(story, reel?.first, reel?.second)
     }
 
     fun installStoryCached(module: XposedInterface, methods: List<Method>): Boolean =
-        hookStoryMethods(module, methods)
+        !Settings.downloadHooksEnabled() || hookStoryMethods(module, methods)
 
     fun installReelsCached(
         module: XposedInterface,
@@ -156,6 +160,7 @@ object ContextualDownloadHook {
         methods: List<Method>,
         metadata: String,
     ): Boolean {
+        if (!Settings.downloadHooksEnabled()) return true
         val meta = ReelMetadata.decode(metadata) ?: return false
         return installReelRuntime(module, classLoader, methods, meta)
     }

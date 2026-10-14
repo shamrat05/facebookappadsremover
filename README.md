@@ -2,7 +2,7 @@
 
 An LSPosed/Xposed module for `com.facebook.katana` that removes ads using structural DexKit discovery plus guarded, version-specific fast paths.
 
-Original port target: Facebook `576.0.0.42.73`; development/device testing also covers `580.0.0.51.74`. Module `1.22` (versionCode 23). Discovery is primarily structural rather than based on hardcoded obfuscated class names, but an individual hook can still need revision after a Facebook update. Older versions (571 and below) are no longer supported.
+Original port target: Facebook `576.0.0.42.73`; development/device testing also covers `580.0.0.51.74`. Module `1.22.1` (versionCode 24). Discovery is primarily structural rather than based on hardcoded obfuscated class names, but an individual hook can still need revision after a Facebook update. Older versions (571 and below) are no longer supported.
 
 ## Features
 
@@ -50,7 +50,7 @@ Everything below is available from the module's settings app. The defaults shown
 
 8. **Downloader & Repost**
    - **Download via browser** *(ON by default)* — hands media URLs to your browser instead of the built-in downloader.
-   - **Show contextual download actions** *(ON)* — adds media-bound download/save actions for the Reel or Story currently open.
+   - **Show contextual download actions** *(OFF by default)* — adds media-bound download/save actions for the Reel or Story currently open and arms the media capture path only when enabled.
    - **Quick download from copied link** — copying an HTTP(S) link opens the quality-fetch / quick-download flow.
    - **Repost Reels** — adds a native **Repost** action to the active Reel so it can be reposted through the module's Facebook Page posting flow.
    - **Repost Stories** — adds **Repost** to the currently open Story's three-dot menu, bound to that Story's media.
@@ -125,7 +125,7 @@ Unwrap `facebook.com/l.php?u=…&fbclid=…` redirect links to the real destinat
 
 ### Downloader
 
-Contextual download actions target the Reel or Story you are actually viewing, with the quality picker bound to that media ID; **Copy URL** copies only the currently selected quality; media can be handed to the browser instead of the in-module downloader; copied links can trigger quick-download. Reels get native **Download** and **Repost** sidebar buttons, and Stories get **Repost** in the three-dot menu. Repost reuses the existing Facebook Page posting flow (the page list comes from `graph.facebook.com`, the token from the live session).
+Contextual download actions target the Reel or Story you are actually viewing, with the quality picker bound to that media ID; **Copy URL** copies only the currently selected quality; media can be handed to the browser instead of the in-module downloader; copied links can trigger quick-download. The downloader is **OFF by default** because its capture path observes Facebook's video/player methods during autoplay and scrolling. Turning on either contextual actions or copied-link quick download arms that path; ad/feed filtering remains active while both are off. Reels get native **Download** and **Repost** sidebar buttons, and Stories get **Repost** in the three-dot menu. Repost reuses the existing Facebook Page posting flow (the page list comes from `graph.facebook.com`, the token from the live session).
 
 The reel button is built with Facebook's own sidebar factory. Discovery fingerprints the sidebar's name and call structure rather than obfuscated class names; the factory signature validator accepts the known argument layout plus additional trailing boolean feature flags, preserving their live values from the reel being rendered. A changed meaning/order of the existing arguments fails closed with a log instead of calling the wrong factory. Reel discovery failures are retried after 72 hours (or immediately on a hook-schema or Facebook version change), and a failed cached hook is invalidated for rediscovery at the next Facebook start. See `ReelFactorySignatureTest` for 578/580 and forward-compatibility cases.
 

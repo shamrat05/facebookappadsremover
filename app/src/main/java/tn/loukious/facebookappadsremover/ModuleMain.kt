@@ -157,11 +157,14 @@ class ModuleMain : XposedModule() {
         // dexes attach — so it rides the same retry cadence as the probe.
         AccountHook.init(context)
 
-        // M4: media download — the quick-link overlay + activity tracker need
-        // only the app context; the capture hook rides the discovery paths.
-        // (Capture is throttled to ≤1 full pass/sec + params-class gating, so
-        // the 46-method hook-all stays cheap on the UI thread.)
-        DownloadHook.init(context)
+        // M4: media download is opt-in. Its capture path observes every
+        // Facebook video, so leaving it armed while the user only wants ad
+        // filtering adds avoidable work to scrolling and autoplay.
+        if (Settings.downloadHooksEnabled()) {
+            DownloadHook.init(context)
+        } else {
+            L.i(TAG, "Downloader disabled; ad/feed hooks stay enabled")
+        }
 
         // Game ads: framework seams only (activity lifecycle closer, launch
         // blockers, JS-interface + script watchers) — they need no DexKit,
@@ -251,17 +254,20 @@ class ModuleMain : XposedModule() {
         if (!navigationTabNativeReady) {
             navigationTabNativeReady = NavigationTabHook.installNative(this, classLoader)
         }
-        // M4: video params capture — stable class name, needs only the
-        // secondary dexes to attach (same cadence as the account hook).
-        if (!paramsHookTried) {
-            paramsHookTried = DownloadHook.installVideoParamsHook(this, classLoader)
-            if (paramsHookTried) L.i(TAG, "Video params capture hook installed")
-        }
-        // M4: the mod's clipboard trigger for the qualities fetch — copying
-        // any http(s) link (FB's "Copy link" on a video) opens the picker.
-        // Framework class, installable immediately.
-        if (!clipboardHookTried) {
-            clipboardHookTried = DownloadHook.installClipboardHook(this)
+        // M4: video params/clipboard capture are only armed when a downloader
+        // action is enabled. Mark them complete while disabled so the retry
+        // loop never keeps probing a deliberately skipped feature.
+        if (!Settings.downloadHooksEnabled()) {
+            paramsHookTried = true
+            clipboardHookTried = true
+        } else {
+            if (!paramsHookTried) {
+                paramsHookTried = DownloadHook.installVideoParamsHook(this, classLoader)
+                if (paramsHookTried) L.i(TAG, "Video params capture hook installed")
+            }
+            if (!clipboardHookTried) {
+                clipboardHookTried = DownloadHook.installClipboardHook(this)
+            }
         }
         val found = probeStableClasses(classLoader) == ProbeTargets.stableClasses.size
 
@@ -307,52 +313,52 @@ class ModuleMain : XposedModule() {
             L.i(TAG, "Discovery cache predates ads-opt-out hook — rescanning")
             return false
         }
-        val playerClass = try {
+        val downloaderEnabled = Settings.downloadHooksEnabled()
+        val playerClass = if (downloaderEnabled) try {
             MethodCache.loadClass(context, DownloadHook.CACHE_KEY)
         } catch (t: Throwable) {
             L.w(TAG, "discovery cache class read failed", t); null
-        }
-        // Same for a pre-M4 cache: the player-container class is needed for
-        // the download capture hook.
-        if (playerClass == null) {
+        } else null
+        // Same for a pre-M4 cache: the player-container class is needed only
+        // when the opt-in download capture path is enabled.
+        if (downloaderEnabled && playerClass == null) {
             L.i(TAG, "Discovery cache predates download hook — rescanning")
             return false
         }
-        val mediaSetupClass = try {
+        val mediaSetupClass = if (downloaderEnabled) try {
             MethodCache.loadClass(context, DownloadHook.MEDIA_CACHE_KEY)
         } catch (t: Throwable) {
             L.w(TAG, "discovery cache class read failed", t); null
-        }
-        // Same for a pre-M4b cache: the media-setup controller class.
-        if (mediaSetupClass == null) {
+        } else null
+        if (downloaderEnabled && mediaSetupClass == null) {
             L.i(TAG, "Discovery cache predates media-setup hook — rescanning")
             return false
         }
-        val contextualStoryState = try {
+        val contextualStoryState = if (downloaderEnabled) try {
             MethodCache.loadClass(context, ContextualDownloadHook.STORY_CACHE_KEY)
         } catch (t: Throwable) {
             L.w(TAG, "discovery cache class read failed", t); null
-        }
-        val contextualReelState = try {
+        } else "absent"
+        val contextualReelState = if (downloaderEnabled) try {
             MethodCache.loadClass(context, ContextualDownloadHook.REEL_CACHE_KEY)
         } catch (t: Throwable) {
             L.w(TAG, "discovery cache class read failed", t); null
-        }
-        if (contextualStoryState == null || contextualReelState == null) {
+        } else "absent"
+        if (downloaderEnabled && (contextualStoryState == null || contextualReelState == null)) {
             L.i(TAG, "Discovery cache predates contextual downloader — rescanning")
             return false
         }
-        if (contextualStoryState != "absent" &&
+        if (downloaderEnabled && contextualStoryState != "absent" &&
             contextualStoryState != ContextualDownloadHook.STORY_CACHE_VERSION
         ) {
             L.i(TAG, "Contextual story cache predates native-menu hook — rescanning")
             return false
         }
-        if (ContextualDownloadHook.reelCacheNeedsRescan(contextualReelState)) {
+        if (downloaderEnabled && ContextualDownloadHook.reelCacheNeedsRescan(contextualReelState)) {
             L.i(TAG, "Contextual reel cache expired or predates native-sidebar hook — rescanning")
             return false
         }
-        if (!ContextualDownloadHook.isReelAbsent(contextualReelState) &&
+        if (downloaderEnabled && !ContextualDownloadHook.isReelAbsent(contextualReelState) &&
             methods[ContextualDownloadHook.REEL_CACHE_KEY]?.size != 4
         ) {
             L.i(TAG, "Contextual reel cache missing native-sidebar methods — rescanning")
@@ -541,40 +547,44 @@ class ModuleMain : XposedModule() {
             } else {
                 L.i(TAG, "Stories-tray anchor not found on this build — skipping")
             }
-            playerClass?.let {
-                runCatching {
-                    DownloadHook.installCached(this, classLoader, it)
-                }.onFailure { L.e(TAG, "Download hook installation failed", it) }
-            }
-            mediaSetupClass?.let {
-                runCatching {
-                    DownloadHook.installMediaSetupCached(this, classLoader, it)
-                }.onFailure { L.e(TAG, "Media-setup hook installation failed", it) }
-            }
-            if (contextualStoryState != "absent") {
-                runCatching {
-                    ContextualDownloadHook.installStoryCached(
-                        this, methods[ContextualDownloadHook.STORY_CACHE_KEY].orEmpty())
-                }.onFailure { L.e(TAG, "Contextual story download installation failed", it) }
-            }
-            if (!ContextualDownloadHook.isReelAbsent(contextualReelState)) {
-                val installed = runCatching {
-                    ContextualDownloadHook.installReelsCached(
-                        this,
-                        classLoader,
-                        methods[ContextualDownloadHook.REEL_CACHE_KEY].orEmpty(),
-                        contextualReelState,
-                    )
-                }.onFailure { L.e(TAG, "Contextual reel download installation failed", it) }
-                    .getOrDefault(false)
-                if (!installed) {
-                    // Other hooks are already active: rescanning everything
-                    // right here could duplicate them. Invalidate just this
-                    // sentinel so the next Facebook process does a clean
-                    // full scan instead of silently skipping reels forever.
-                    L.w(TAG, "Cached reel hook failed; rediscovering on next Facebook start")
-                    MethodCache.invalidateClass(context, ContextualDownloadHook.REEL_CACHE_KEY)
+            if (downloaderEnabled) {
+                playerClass?.let {
+                    runCatching {
+                        DownloadHook.installCached(this, classLoader, it)
+                    }.onFailure { L.e(TAG, "Download hook installation failed", it) }
                 }
+                mediaSetupClass?.let {
+                    runCatching {
+                        DownloadHook.installMediaSetupCached(this, classLoader, it)
+                    }.onFailure { L.e(TAG, "Media-setup hook installation failed", it) }
+                }
+                if (contextualStoryState != "absent") {
+                    runCatching {
+                        ContextualDownloadHook.installStoryCached(
+                            this, methods[ContextualDownloadHook.STORY_CACHE_KEY].orEmpty())
+                    }.onFailure { L.e(TAG, "Contextual story download installation failed", it) }
+                }
+                if (!ContextualDownloadHook.isReelAbsent(contextualReelState)) {
+                    val installed = runCatching {
+                        ContextualDownloadHook.installReelsCached(
+                            this,
+                            classLoader,
+                            methods[ContextualDownloadHook.REEL_CACHE_KEY].orEmpty(),
+                            contextualReelState,
+                        )
+                    }.onFailure { L.e(TAG, "Contextual reel download installation failed", it) }
+                        .getOrDefault(false)
+                    if (!installed) {
+                        // Other hooks are already active: rescanning everything
+                        // right here could duplicate them. Invalidate just this
+                        // sentinel so the next Facebook process does a clean
+                        // full scan instead of silently skipping reels forever.
+                        L.w(TAG, "Cached reel hook failed; rediscovering on next Facebook start")
+                        MethodCache.invalidateClass(context, ContextualDownloadHook.REEL_CACHE_KEY)
+                    }
+                }
+            } else {
+                L.i(TAG, "Downloader disabled; skipped cached media hooks")
             }
             if (videoPlayerState != "absent") {
                 runCatching {
@@ -742,27 +752,37 @@ class ModuleMain : XposedModule() {
                 trayMethods = StoriesTrayHook.install(this, bridge, classLoader)
             }.onFailure { L.e(TAG, "Stories-tray hook installation failed", it) }
 
+            val downloaderEnabled = Settings.downloadHooksEnabled()
+
             // M4: media download capture hook (mod's oRfibdnyvv3dEUIoNSY0$Hk8o
-            // installer on the RichVideoPlayer container).
+            // installer on the RichVideoPlayer container). This whole branch
+            // is skipped when the opt-in downloader is off; ad filtering does
+            // not depend on media capture.
             var playerClass: String? = null
-            runCatching {
-                playerClass = DownloadHook.install(this, bridge, classLoader)
-            }.onFailure { L.e(TAG, "Download hook installation failed", it) }
+            if (downloaderEnabled) {
+                runCatching {
+                    playerClass = DownloadHook.install(this, bridge, classLoader)
+                }.onFailure { L.e(TAG, "Download hook installation failed", it) }
+            }
 
             // M4b: 576-renamed capture site — the video-setup controller that
             // BUILDS the {GraphQLMedia=…, NeedCenteringKey=…} map the mod's
             // callback regexed (C90164w8 in 576.0.0.42.73).
             var mediaSetupClass: String? = null
-            runCatching {
-                mediaSetupClass = DownloadHook.installMediaSetup(this, bridge, classLoader)
-            }.onFailure { L.e(TAG, "Media-setup hook installation failed", it) }
+            if (downloaderEnabled) {
+                runCatching {
+                    mediaSetupClass = DownloadHook.installMediaSetup(this, bridge, classLoader)
+                }.onFailure { L.e(TAG, "Media-setup hook installation failed", it) }
+            }
 
             // Morphe-style native download actions. Stories reuse Facebook's
             // Save row; reels append a real button to Facebook's own sidebar.
             var contextualDownloads: ContextualDownloadHook.Result? = null
-            runCatching {
-                contextualDownloads = ContextualDownloadHook.install(this, bridge, classLoader)
-            }.onFailure { L.e(TAG, "Contextual download installation failed", it) }
+            if (downloaderEnabled) {
+                runCatching {
+                    contextualDownloads = ContextualDownloadHook.install(this, bridge, classLoader)
+                }.onFailure { L.e(TAG, "Contextual download installation failed", it) }
+            }
 
             // M5: video playback trio, resume + background arms (mod:
             // qV2f0EclUxE76gtr3YEb + nlYTzRDfkAYF5jojqBcx). Both hook the
@@ -834,8 +854,10 @@ class ModuleMain : XposedModule() {
                         )
                         put(
                             ContextualDownloadHook.REEL_CACHE_KEY,
-                            contextualDownloads?.reelMetadata
-                                ?: ContextualDownloadHook.reelDiscoveryFailedEntry(),
+                            if (downloaderEnabled) {
+                                contextualDownloads?.reelMetadata
+                                    ?: ContextualDownloadHook.reelDiscoveryFailedEntry()
+                            } else "absent",
                         )
                         videoPlayerClass?.let { put(VideoResumeHook.CACHE_KEY, it) }
                         // "absent" records a NOT_FOUND anchor so later launches

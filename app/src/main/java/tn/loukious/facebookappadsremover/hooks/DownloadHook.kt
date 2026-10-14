@@ -426,6 +426,10 @@ object DownloadHook {
     // ------------------------------------------------------------- lifecycle
 
     fun init(context: Context) {
+        if (!Settings.downloadHooksEnabled()) {
+            L.i(TAG, "downloader disabled; media capture hooks remain unarmed")
+            return
+        }
         appContext = context.applicationContext
         if (context is Application) {
             runCatching {
@@ -787,6 +791,7 @@ object DownloadHook {
      * Installed on the probe-retry cadence like AccountHook — no DexKit.
      */
     fun installVideoParamsHook(module: XposedInterface, classLoader: ClassLoader): Boolean {
+        if (!Settings.downloadHooksEnabled()) return true
         if (paramCtorHandles.isNotEmpty()) return true
         val cls = runCatching {
             Class.forName(PARAMS_CLASS, false, classLoader)
@@ -823,6 +828,7 @@ object DownloadHook {
     private var clipboardHandle: XposedInterface.HookHandle? = null
 
     fun installClipboardHook(module: XposedInterface): Boolean {
+        if (!Settings.downloadHooksEnabled()) return true
         clipboardHandle?.let { return true }
         return runCatching {
             val m = android.content.ClipboardManager::class.java
@@ -993,6 +999,7 @@ object DownloadHook {
      * @return the class name when found, for the discovery cache.
      */    fun install(module: XposedInterface, bridge: org.luckypray.dexkit.DexKitBridge,
                 classLoader: ClassLoader): String? {
+        if (!Settings.downloadHooksEnabled()) return null
         val hits = runCatching {
             bridge.findClass {
                 matcher {
@@ -1016,7 +1023,10 @@ object DownloadHook {
 
     /** Cache-hit path: hook the previously discovered class directly. */
     fun installCached(module: XposedInterface, classLoader: ClassLoader,
-                      className: String): Boolean = hookPlayerClass(module, classLoader, className)
+                      className: String): Boolean {
+        if (!Settings.downloadHooksEnabled()) return true
+        return hookPlayerClass(module, classLoader, className)
+    }
 
     // ------------------------------------------------- media-setup capture (576)
 
@@ -1050,6 +1060,7 @@ object DownloadHook {
      */
     fun installMediaSetup(module: XposedInterface, bridge: org.luckypray.dexkit.DexKitBridge,
                           classLoader: ClassLoader): String? {
+        if (!Settings.downloadHooksEnabled()) return null
         val hits = runCatching {
             bridge.findClass {
                 matcher {
@@ -1073,7 +1084,7 @@ object DownloadHook {
     /** Cache-hit path: hook the previously discovered controller directly. */
     fun installMediaSetupCached(module: XposedInterface, classLoader: ClassLoader,
                                 className: String): Boolean =
-        hookMediaSetupClass(module, classLoader, className)
+        Settings.downloadHooksEnabled() && hookMediaSetupClass(module, classLoader, className)
 
     /**
      * Mod-faithful hook-all on the renamed capture class: every declared

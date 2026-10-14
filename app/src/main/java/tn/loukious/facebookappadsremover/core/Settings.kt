@@ -91,8 +91,9 @@ object Settings {
     const val PRIVACY_BLOCK_DETECTION = "privacy.blockCaptureDetection"
     const val DOWNLOAD_USE_BROWSER = "download.useBrowser"
 
-    /** Show contextual reel/story download actions. The downloader itself
-     *  stays armed when this is off; copied-link downloads still work. */
+    /** Show contextual reel/story download actions. This is also the arm for
+     *  the media capture pipeline because capturing every Facebook video is a
+     *  hot path even when no download action is visible. */
     const val DOWNLOAD_SHOW_ICON = "download.showIcon"
 
     /** Quick download via copied link — the clipboard trigger arm
@@ -141,6 +142,11 @@ object Settings {
      *  the mod's default for this switch was not decoded, and the port's
      *  no-overlay variant changes audible behaviour, so it ships off. */
     const val VIDEO_BACKGROUND = "media.video.background"
+
+    /** The media downloader is opt-in; ad/feed hooks stay active when false. */
+    fun downloadHooksEnabled(): Boolean =
+        getBoolean(DOWNLOAD_SHOW_ICON, false) ||
+            getBoolean(DOWNLOAD_CLIPBOARD, false)
 
     private var prefs: SharedPreferences? = null
 

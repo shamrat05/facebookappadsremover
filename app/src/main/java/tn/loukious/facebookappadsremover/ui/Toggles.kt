@@ -183,8 +183,8 @@ val TOGGLE_SECTIONS: List<ToggleSection> = listOf(
         ToggleSpec(
             Settings.DOWNLOAD_SHOW_ICON,
             "Show contextual download actions",
-            "Shows Download on the active reel and enables Save for the story currently open; each action is bound to that media item",
-            true,
+            "Shows Download on the active reel and enables Save for the story currently open; enabling it also arms the media capture path",
+            false,
         ),
         ToggleSpec(
             Settings.DOWNLOAD_CLIPBOARD,
