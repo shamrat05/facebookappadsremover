@@ -36,10 +36,8 @@ jobs:
       - name: Sign and checksum APK
         run: |
           set -euo pipefail
-          apk="app/build/outputs/apk/release/app-release-unsigned.apk"
-          if [ ! -f "$apk" ]; then
-            apk="app/build/outputs/apk/release/app-release.apk"
-          fi
+          apk="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$apk"
           test -f "$apk"
           mkdir -p dist
           keytool -genkeypair -v \
