@@ -11,8 +11,8 @@ android {
         applicationId = "tn.loukious.facebookappadsremover"
         minSdk = 27
         targetSdk = 35
-        versionCode = 31
-        versionName = "1.22.8"
+        versionCode = 32
+        versionName = "1.22.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -20,10 +20,6 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            // The Actions artifact must be installable. This uses the
-            // standard Android debug key supplied by the runner; production
-            // signing credentials are not stored in this repository.
-            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

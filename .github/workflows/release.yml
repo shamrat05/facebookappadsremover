@@ -33,12 +33,25 @@ jobs:
       - name: Build release APK
         run: ./gradlew :app:assembleRelease --no-daemon
 
-      - name: Checksum signed APK
+      - name: Sign and checksum APK
         run: |
           set -euo pipefail
-          apk="app/build/outputs/apk/release/app-release.apk"
+          apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          if [ ! -f "$apk" ]; then
+            apk="app/build/outputs/apk/release/app-release.apk"
+          fi
           test -f "$apk"
           mkdir -p dist
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/fbar-release.keystore" \
+            -storepass android -keypass android \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=FBAR CI,OU=Android,O=FBAR,L=CI,S=CI,C=US"
+          jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+            -keystore "$RUNNER_TEMP/fbar-release.keystore" \
+            -storepass android -keypass android \
+            "$apk" androiddebugkey
+          jarsigner -verify "$apk"
           cp "$apk" "dist/FacebookAppAdsRemover-${GITHUB_REF_NAME}.apk"
           sha256sum "dist/FacebookAppAdsRemover-${GITHUB_REF_NAME}.apk" \
             > "dist/FacebookAppAdsRemover-${GITHUB_REF_NAME}.sha256"
