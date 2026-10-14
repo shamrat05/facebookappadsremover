@@ -50,7 +50,11 @@ jobs:
             -storepass android -keypass android \
             -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=FBAR CI,OU=Android,O=FBAR,L=CI,S=CI,C=US"
-          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          if [ ! -x "$apksigner" ]; then
+            apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -print | sort -V | tail -1)"
+          fi
+          test -n "$apksigner" && test -x "$apksigner"
           "$apksigner" sign \
             --ks "$RUNNER_TEMP/fbar-release.keystore" \
             --ks-pass pass:android --key-pass pass:android \
