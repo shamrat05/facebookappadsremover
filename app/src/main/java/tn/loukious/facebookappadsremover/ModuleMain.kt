@@ -548,6 +548,7 @@ class ModuleMain : XposedModule() {
                 L.i(TAG, "Stories-tray anchor not found on this build — skipping")
             }
             if (downloaderEnabled) {
+                val reelState = contextualReelState ?: return false
                 playerClass?.let {
                     runCatching {
                         DownloadHook.installCached(this, classLoader, it)
@@ -564,13 +565,13 @@ class ModuleMain : XposedModule() {
                             this, methods[ContextualDownloadHook.STORY_CACHE_KEY].orEmpty())
                     }.onFailure { L.e(TAG, "Contextual story download installation failed", it) }
                 }
-                if (!ContextualDownloadHook.isReelAbsent(contextualReelState)) {
+                if (!ContextualDownloadHook.isReelAbsent(reelState)) {
                     val installed = runCatching {
                         ContextualDownloadHook.installReelsCached(
                             this,
                             classLoader,
                             methods[ContextualDownloadHook.REEL_CACHE_KEY].orEmpty(),
-                            contextualReelState,
+                            reelState,
                         )
                     }.onFailure { L.e(TAG, "Contextual reel download installation failed", it) }
                         .getOrDefault(false)
